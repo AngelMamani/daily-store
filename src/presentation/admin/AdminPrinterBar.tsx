@@ -1,0 +1,94 @@
+import { useEffect, useState } from "react"
+import {
+  canUseBluetoothPrinter,
+  canUseUsbPrinter,
+  connectBluetoothPrinter,
+  connectUsbPrinter,
+  disconnectPrinter,
+  getPrinterStatus,
+  isAndroidClient,
+  isIosClient,
+  isTouchClient,
+  reconnectSavedPrinter,
+  subscribePrinter,
+} from "../../infrastructure/ordering/thermal-printer.ts"
+import { showAdminError, showAdminSuccess } from "./admin-alerts.ts"
+
+export function AdminPrinterBar() {
+  const [, setTick] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const android = isAndroidClient()
+  const ios = isIosClient()
+  const touch = isTouchClient()
+  const status = getPrinterStatus()
+  const showBluetooth = canUseBluetoothPrinter()
+
+  useEffect(() => {
+    const stop = subscribePrinter(() => setTick((value) => value + 1))
+    void reconnectSavedPrinter()
+    return stop
+  }, [])
+
+  async function run(action: () => Promise<void>, ok: string) {
+    setBusy(true)
+    try {
+      await action()
+      await showAdminSuccess("Impresora", ok)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo vincular la impresora."
+      if (message.toLowerCase().includes("cancel")) return
+      await showAdminError("Impresora", message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="admin-printer" aria-label="Impresora térmica">
+      <div>
+        <p className="admin-kicker">Boletas</p>
+        <strong>{status.connected ? status.name : "POS58 no vinculada"}</strong>
+        <em>
+          {status.connected
+            ? status.link === "bluetooth"
+              ? "Lista. Las siguientes boletas salen al toque, sin buscar otra vez."
+              : "USB/COM listo para imprimir"
+            : ios
+              ? "En iPhone o iPad al imprimir se abre el menú de impresión, sin buscar Bluetooth."
+              : android || touch
+                ? "Pulsa Bluetooth una sola vez y elige la POS58. Después imprime al toque."
+                : canUseUsbPrinter()
+                  ? "Pulsa USB/COM solo si el cable está enchufado. Si no, Bluetooth."
+                  : "Al imprimir se abre el selector. PIN de la POS58: 0000."}
+        </em>
+      </div>
+      <div className="admin-printer__actions">
+        {showBluetooth ? (
+          <button
+            type="button"
+            className="btn btn--outline"
+            disabled={busy}
+            onClick={() => void run(connectBluetoothPrinter, "Quedó vinculada por Bluetooth.")}
+          >
+            Bluetooth
+          </button>
+        ) : null}
+        {canUseUsbPrinter() ? (
+          <button
+            type="button"
+            className="btn btn--outline"
+            disabled={busy}
+            onClick={() => void run(connectUsbPrinter, "Quedó vinculada por USB/COM.")}
+          >
+            USB / COM
+          </button>
+        ) : null}
+        {status.connected ? (
+          <button type="button" className="btn btn--outline" disabled={busy} onClick={() => void disconnectPrinter()}>
+            Soltar
+          </button>
+        ) : null}
+      </div>
+    </section>
+  )
+}
